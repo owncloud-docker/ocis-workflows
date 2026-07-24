@@ -1,0 +1,81 @@
+FROM docker.io/node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-builder
+
+ARG GIT_REF="main"
+# Optional exact commit to build. When set (rolling builds), it pins the clone to
+# that commit and, because it is referenced in the clone layer below, busts the
+# build cache whenever upstream main moves so the rolling image stays fresh.
+# Leave empty to clone GIT_REF as-is.
+ARG GIT_SHA=""
+
+RUN apk add --no-cache git
+
+RUN npm install -g pnpm@10.34.1
+
+RUN git clone --depth 1 --branch "${GIT_REF}" https://github.com/owncloud/ocis-workflows.git /build && \
+    if [ -n "${GIT_SHA}" ]; then \
+      git -C /build fetch --depth 1 origin "${GIT_SHA}" && \
+      git -C /build checkout --detach FETCH_HEAD; \
+    fi
+
+WORKDIR /build/frontend
+RUN pnpm install --frozen-lockfile && pnpm build
+
+
+FROM docker.io/golang:1.25-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587 AS go-builder
+
+ARG TARGETARCH
+
+RUN apk add --no-cache git
+
+COPY --from=frontend-builder /build /build
+
+WORKDIR /build/backend
+RUN go mod download && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /out/app ./cmd/workflows
+
+
+FROM docker.io/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+
+ARG VERSION=""
+ARG REVISION=""
+
+LABEL maintainer="ownCloud GmbH <devops@owncloud.com>" \
+  org.opencontainers.image.title="oCIS Workflows" \
+  org.opencontainers.image.vendor="ownCloud GmbH" \
+  org.opencontainers.image.authors="ownCloud GmbH" \
+  org.opencontainers.image.description="oCIS Workflows - AI-powered file workflow automation extension for ownCloud Infinite Scale" \
+  org.opencontainers.image.licenses="Apache-2.0" \
+  org.opencontainers.image.documentation="https://github.com/owncloud/ocis-workflows" \
+  org.opencontainers.image.url="https://hub.docker.com/r/owncloud/ocis-workflows" \
+  org.opencontainers.image.source="https://github.com/owncloud/ocis-workflows" \
+  org.opencontainers.image.version="${VERSION:-main-${REVISION}}" \
+  org.opencontainers.image.revision="${REVISION}"
+
+RUN apk upgrade --no-cache && \
+  apk add --no-cache ca-certificates
+
+RUN addgroup -g 1000 -S workflows-group && \
+  adduser -S --ingroup workflows-group --uid 1000 workflows-user --home /data
+
+RUN mkdir -p /data && \
+  chown -R workflows-user:workflows-group /data && \
+  chmod -R 751 /data
+
+COPY --from=go-builder /out/app /usr/local/bin/app
+# Baked-in web extension assets. Not served by this image directly — copy this
+# path into your oCIS deployment's WEB_ASSET_APPS_PATH (e.g. via an
+# initContainer running `cp`), the same way docker-compose.yml in the app repo
+# mounts frontend/dist into the oCIS container.
+COPY --from=frontend-builder /build/frontend/dist /web/apps/workflows
+
+VOLUME [ "/data" ]
+
+WORKDIR /data
+
+EXPOSE 9105/tcp 9109/tcp
+
+USER 1000
+
+ENTRYPOINT ["/usr/local/bin/app"]
+
+CMD ["server"]

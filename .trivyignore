@@ -1,0 +1,3 @@
+# CVEs baked into the ocis-workflows binary (Go/npm dependencies). Unfixable by this
+# repo — requires an upstream owncloud/ocis-workflows fix. Add entries only when a
+# CVE is disclosed that upstream hasn't patched yet.
