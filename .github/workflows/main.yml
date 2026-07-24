@@ -1,0 +1,79 @@
+name: Docker CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+  schedule:
+    - cron: 0 0 * * 0
+  workflow_dispatch:
+
+jobs:
+  lint:
+    uses: owncloud-docker/ubuntu/.github/workflows/lint-editorconfig.yml@master
+
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      full-sha: ${{ steps.resolve.outputs.full-sha }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      # ocis-workflows has no release tags yet, so this pipeline tracks its main
+      # branch HEAD directly (a rolling-style build) rather than a version
+      # matrix. Once ocis-workflows starts cutting semver tags, extend the
+      # `build` job below with a matrix like owncloud-docker/ocis's main.yml.
+      - name: Resolve ocis-workflows main HEAD and date stamp
+        id: resolve
+        run: |
+          FULL_SHA=$(git ls-remote https://github.com/owncloud/ocis-workflows.git refs/heads/main | cut -f1)
+          if [ -z "${FULL_SHA}" ]; then
+            echo "Failed to resolve owncloud/ocis-workflows main HEAD"
+            exit 1
+          fi
+          {
+            echo "sha=${FULL_SHA:0:7}"
+            echo "full-sha=${FULL_SHA}"
+            echo "date=$(date -u +%Y%m%d)"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [lint, prepare]
+    uses: owncloud-docker/ubuntu/.github/workflows/docker-build-native.yml@master
+    with:
+      docker-repo-name: owncloud/ocis-workflows
+      docker-tag: latest
+      docker-context: .
+      docker-file: Dockerfile.multiarch
+      docker-hub-username: ${{ vars.DOCKERHUB_USERNAME }}
+      docker-build-args: |
+        GIT_REF=main
+        GIT_SHA=${{ needs.prepare.outputs.full-sha }}
+        REVISION=${{ needs.prepare.outputs.full-sha }}
+      docker-cache-from: type=gha
+      docker-cache-to: type=gha,mode=max
+      trivy-ignore-files: .trivyignore
+      docker-extra-tags: |
+        ${{ needs.prepare.outputs.date }}
+        sha-${{ needs.prepare.outputs.sha }}
+      smoke-test-port: "9109"
+      smoke-test-entrypoint-cmd: "/usr/local/bin/app server"
+      smoke-test-url: "http://localhost:9109/healthz"
+      push: ${{ github.event_name != 'pull_request' }}
+    secrets:
+      docker-hub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  update-docker-hub-description:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    uses: owncloud-docker/ubuntu/.github/workflows/docker-hub-desc.yml@master
+    with:
+      docker-repo-name: owncloud/ocis-workflows
+      docker-repo-description: oCIS Workflows - AI-powered file workflow automation extension for ownCloud Infinite Scale
+      docker-hub-username: ${{ vars.DOCKERHUB_USERNAME }}
+    secrets:
+      docker-hub-password: ${{ secrets.DOCKERHUB_TOKEN }}
