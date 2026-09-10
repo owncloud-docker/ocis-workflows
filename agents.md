@@ -31,9 +31,8 @@ They are built from a single upstream checkout so they always ship in lockstep.
     frontend assets (`/web/apps/workflows`).
 - `.github/workflows/main.yml` — **active** CI: rolling build of upstream `main`
 - `.github/workflows/lint-pr-title.yml` — Conventional-Commit PR-title enforcement
-- `.github/dependabot.yml` — weekly GitHub Actions dependency updates
+- `.github/dependabot.yml` — weekly GitHub Actions and Docker base-image dependency updates
 - `.github/CODEOWNERS` — review ownership
-- `.renovaterc.json` — Renovate preset for Docker digest updates
 - `.editorconfig` — formatting rules (2-space indent, LF, trailing newline)
 - `.trivyignore` — accepted-CVE exclusions for the Trivy scan
 - `LICENSE` — Apache-2.0
@@ -102,9 +101,12 @@ The image exposes ports `9105` (API) and `9109` (health/debug), and uses volume 
 - Never introduce actions from unverified third parties.
 
 ### Dependency Management
-- Dependabot is configured for GitHub Actions updates; Renovate handles Docker
-  base-image digest updates. Do **not** add a `docker` ecosystem to
-  `.github/dependabot.yml` — that duplicates Renovate and lets digest pins drift.
+- Dependabot covers both GitHub Actions and Docker base-image updates for this
+  repo (`.github/dependabot.yml`) — Renovate is no longer used here.
+- Unlike the old Renovate setup, Dependabot does not auto-merge digest-only
+  updates and doesn't restrict Node bumps to LTS (even-major) releases. Review
+  each Docker/Actions PR before merging, including checking whether a Node
+  bump lands on an odd (non-LTS) major.
 - Review and merge dependency PRs as part of regular maintenance. A stale
   `golang:*-alpine` digest surfaces as Go `stdlib` CVEs failing the Trivy gate; the
   fix is bumping the digest, not adding `.trivyignore` entries.
