@@ -107,9 +107,11 @@ The image exposes ports `9105` (API) and `9109` (health/debug), and uses volume 
   updates and doesn't restrict Node bumps to LTS (even-major) releases. Review
   each Docker/Actions PR before merging, including checking whether a Node
   bump lands on an odd (non-LTS) major.
-- Review and merge dependency PRs as part of regular maintenance. A stale
-  `golang:*-alpine` digest surfaces as Go `stdlib` CVEs failing the Trivy gate; the
-  fix is bumping the digest, not adding `.trivyignore` entries.
+- Review and merge dependency PRs as part of regular maintenance. Base images in
+  `Dockerfile.multiarch` must remain pinned as `tag@sha256:<digest>`; Dependabot
+  updates the digest in place. A stale `golang:*-alpine` digest surfaces as Go
+  `stdlib` CVEs failing the Trivy gate; the fix is bumping the digest, not adding
+  `.trivyignore` entries.
 
 ### Git Workflow
 - **Rebase policy**: Always rebase; never create merge commits.
